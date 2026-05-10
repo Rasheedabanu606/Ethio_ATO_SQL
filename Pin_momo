@@ -1,0 +1,156 @@
+INSERT INTO minio.default.ato_momo_features
+
+WITH momo_txn AS (
+
+    SELECT
+
+        REPLACE(ord_initiating_device_value, '+', '') AS msisdn,
+
+        ord_begintime AS txn_time,
+
+        ord_procstate,
+
+        tx_actual_amount
+
+    FROM minio.default.u_mm_transaction
+
+    WHERE ord_procstate IN (
+        'Completed',
+        'Declined',
+        'Cancelled'
+    )
+)
+
+SELECT
+
+    pr.msisdn,
+
+    pr.pin_reset_time,
+
+    MIN(mt.txn_time)
+        FILTER (
+            WHERE mt.txn_time > pr.pin_reset_time
+        ) AS first_txn_time,
+
+    MIN_BY(
+        mt.tx_actual_amount,
+        mt.txn_time
+    ) FILTER (
+        WHERE mt.txn_time > pr.pin_reset_time
+    ) AS first_tx_amt_aftr_pr,
+
+    MIN_BY(
+        mt.ord_procstate,
+        mt.txn_time
+    ) FILTER (
+        WHERE mt.txn_time > pr.pin_reset_time
+    ) AS first_tx_status_aftr_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Completed'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '6' HOUR
+    ) AS comp_tx_count_6h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Completed'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '24' HOUR
+    ) AS comp_tx_count_24h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Completed'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '48' HOUR
+    ) AS comp_tx_count_48h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Declined'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '6' HOUR
+    ) AS decl_tx_count_6h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Declined'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '24' HOUR
+    ) AS decl_tx_count_24h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Declined'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '48' HOUR
+    ) AS decl_tx_count_48h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Cancelled'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '6' HOUR
+    ) AS cancel_tx_count_6h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Cancelled'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '24' HOUR
+    ) AS cancel_tx_count_24h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Cancelled'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '48' HOUR
+    ) AS cancel_tx_count_48h_pr,
+
+    SUM(mt.tx_actual_amount) FILTER (
+        WHERE mt.ord_procstate='Completed'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '24' HOUR
+    ) AS comp_tx_amt_24h_pr,
+
+    SUM(mt.tx_actual_amount) FILTER (
+        WHERE mt.ord_procstate='Declined'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '6' HOUR
+    ) AS decl_tx_amt_6h_pr,
+
+    SUM(mt.tx_actual_amount) FILTER (
+        WHERE mt.ord_procstate='Declined'
+        AND mt.txn_time BETWEEN pr.pin_reset_time
+        AND pr.pin_reset_time + INTERVAL '24' HOUR
+    ) AS decl_tx_amt_24h_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Completed'
+        AND mt.txn_time < pr.pin_reset_time
+    ) AS count_comp_tx_before_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Declined'
+        AND mt.txn_time < pr.pin_reset_time
+    ) AS count_decl_tx_before_pr,
+
+    COUNT(*) FILTER (
+        WHERE mt.ord_procstate='Cancelled'
+        AND mt.txn_time < pr.pin_reset_time
+    ) AS count_cancel_tx_before_pr
+
+FROM minio.default.pinresetoutput pr
+
+LEFT JOIN momo_txn mt
+
+ON pr.msisdn = mt.msisdn
+
+WHERE DATE(pr.pin_reset_time)
+= current_date - INTERVAL '3' day
+
+AND mt.txn_time BETWEEN
+
+    pr.pin_reset_time - INTERVAL '7' DAY
+
+AND
+
+    pr.pin_reset_time + INTERVAL '48' HOUR
+
+GROUP BY
+
+    pr.msisdn,
+    pr.pin_reset_time
